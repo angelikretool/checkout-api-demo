@@ -19,6 +19,14 @@ on:
         description: "Slack user who triggered the rollback"
         required: false
         default: "unknown"
+      slack_channel_id:
+        description: "Slack channel ID to post completion message"
+        required: false
+        default: ""
+      slack_thread_ts:
+        description: "Slack thread ts to reply in"
+        required: false
+        default: ""
 
 jobs:
   rollback:
@@ -74,3 +82,19 @@ jobs:
           echo "  Rollback complete in $(( SECONDS )) seconds"
           echo "  checkout-api is now serving ${{ inputs.to_version }}"
           echo "=========================================="
+
+      - name: Notify Slack thread
+        if: ${{ inputs.slack_channel_id != '' && inputs.slack_thread_ts != '' }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d @- <<EOF
+          {
+            "channel": "${{ inputs.slack_channel_id }}",
+            "thread_ts": "${{ inputs.slack_thread_ts }}",
+            "text": ":white_check_mark: Rollback complete. checkout-api now serving ${{ inputs.to_version }}.\nIncident: ${{ inputs.incident_id }} | Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
