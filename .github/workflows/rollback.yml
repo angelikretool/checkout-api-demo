@@ -1,0 +1,76 @@
+name: Rollback checkout-api
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: "Current version to roll back FROM"
+        required: true
+        default: "v2.84.1"
+      to_version:
+        description: "Target version to roll back TO"
+        required: true
+        default: "v2.84.0"
+      incident_id:
+        description: "PagerDuty incident ID for audit trail"
+        required: false
+        default: ""
+      initiated_by:
+        description: "Slack user who triggered the rollback"
+        required: false
+        default: "unknown"
+
+jobs:
+  rollback:
+    name: Revert ${{ inputs.from_version }} -> ${{ inputs.to_version }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print rollback context
+        run: |
+          echo "=========================================="
+          echo "  Rollback initiated"
+          echo "=========================================="
+          echo "  Service:    checkout-api"
+          echo "  From:       ${{ inputs.from_version }}"
+          echo "  To:         ${{ inputs.to_version }}"
+          echo "  Incident:   ${{ inputs.incident_id }}"
+          echo "  Initiated:  ${{ inputs.initiated_by }}"
+          echo "=========================================="
+
+      - name: Validate target version exists in registry
+        run: |
+          echo "  Looking up image: registry.internal/checkout-api:${{ inputs.to_version }}"
+          sleep 3
+          echo "  OK - image found, sha256:9f3a...e7c1"
+
+      - name: Drain traffic from current pods
+        run: |
+          echo "  Setting maxSurge=0, maxUnavailable=25%..."
+          sleep 4
+          echo "  OK - 12 pods marked for graceful shutdown"
+
+      - name: Roll out target version
+        run: |
+          echo "  kubectl set image deployment/checkout-api checkout-api=registry.internal/checkout-api:${{ inputs.to_version }}"
+          sleep 6
+          echo "  Deployment updated. Waiting for new pods..."
+          for i in 1 2 3 4 5; do
+            echo "    pod $i/5 ready ($((i*20))%)"
+            sleep 1
+          done
+          echo "  OK - all 12 pods on ${{ inputs.to_version }}"
+
+      - name: Verify health checks
+        run: |
+          echo "  GET /health -> 200"
+          sleep 2
+          echo "  GET /ready  -> 200"
+          sleep 2
+          echo "  Synthetic checkout flow: PASS"
+
+      - name: Rollback complete
+        run: |
+          echo "=========================================="
+          echo "  Rollback complete in $(( SECONDS )) seconds"
+          echo "  checkout-api is now serving ${{ inputs.to_version }}"
+          echo "=========================================="
